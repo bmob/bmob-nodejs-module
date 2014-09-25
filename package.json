@@ -13,7 +13,5 @@
    },
   "readme": "Bmob后端云的NodeJs模块",
   "readmeFilename": "README.md",
-  "license": "Apache2",
-  "_id": "bmob@1.0.0",
-  "_from": "..\\bmob"
+  "license": "Apache2"
 }
