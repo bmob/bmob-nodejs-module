@@ -1,0 +1,19 @@
+{
+  "name": "bmob",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "description": "Bmob Cloud for NodeJs Modules",
+  "dependencies": {
+    "localStorage": "1.0.2",
+    "xmlhttprequest": "1.6.0"
+  },
+   "repository": {
+      "type":"git",
+      "url":"https://github.com/heshaoyue/bmob-nodejs-module"
+   },
+  "readme": "Bmob后端云的NodeJs模块",
+  "readmeFilename": "README.md",
+  "license": "Apache2",
+  "_id": "bmob@1.0.0",
+  "_from": "..\\bmob"
+}
