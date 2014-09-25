@@ -9,7 +9,7 @@
   },
    "repository": {
       "type":"git",
-      "url":"https://github.com/heshaoyue/bmob-nodejs-module"
+      "url":"https://github.com/bmob/bmob-nodejs-module"
    },
   "readme": "Bmob后端云的NodeJs模块",
   "readmeFilename": "README.md",
