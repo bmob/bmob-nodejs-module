@@ -2,7 +2,7 @@
   "name": "bmob",
   "version": "1.0.0",
   "main": "./index.js",
-  "description": "Bmob Cloud for NodeJs Modules",
+  "description": "NodeJs Modules for Bmob Cloud",
   "dependencies": {
     "localStorage": "1.0.2",
     "xmlhttprequest": "1.6.0"
