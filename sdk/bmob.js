@@ -1,10 +1,8 @@
 /*!
  * bmob JavaScript SDK
- * Version: 1.0.0
- * Built:  2014 
  * http://www.bmob.cn
  *
- * Copyright 2014 Bmob, Inc.
+ * Copyright Bmob, Inc.
  * The Bmob JavaScript SDK is freely distributable under the MIT license.
  *
  * Includes: Underscore.js
@@ -305,7 +303,7 @@
     var rand;
     var index = 0;
     var shuffled = [];
-    each(obj, function(value) {
+    each(obj, function(value) {_request
       rand = _.random(index++);
       shuffled[index - 1] = shuffled[rand];
       shuffled[rand] = value;
@@ -1334,6 +1332,7 @@
 
   // Set the server for Bmob to talk to.
   Bmob.serverURL = "https://api.bmob.cn";
+  // Bmob.serverURL = "http://192.168.1.60:8080";
   Bmob.fileURL = "http://file.bmob.cn";
   
   // Check whether we are running in Node.js.
@@ -1511,7 +1510,7 @@
 
         // alert(tempResponse.length);
 
-        if (xhr.status == 200 && tempResponse['code'] && tempResponse['error']  ) 
+        if (xhr.status == 200 && tempResponse && tempResponse['code'] && tempResponse['error']  ) 
 		{
 		
                  xhr.status=400; 
@@ -1569,28 +1568,15 @@
       throw "You must specify a key using Bmob.initialize";
     }
 
-
-    if (route !== "batch" &&
-        route !== "classes" &&
-        route !== "files" &&
-        route !== "functions" &&
-        route !== "login" &&
-        route !== "push" &&
-        route !== "search/select" &&
-        route !== "images/thumbnail" &&
-        route !== "images/watermark" &&
-        route !== "requestPasswordReset" &&
-        route !== "requestEmailVerify" &&
-        route !== "users" &&
-        !(/users\/[^\/]+\/friendship\/[^\/]+/.test(route))) {
-      throw "Bad route: '" + route + "'.";
-    }
-
     var url = Bmob.serverURL;
     if (url.charAt(url.length - 1) !== "/") {
       url += "/";
     }
-    url += "1/" + route;
+  	if(  route.indexOf("2/")<0 ){  //如果是使用了2版接口，则不需要加上路由
+  		url += "1/" + route;
+  	}else{
+      url += route;
+    }
     if (className) {
       url += "/" + className;
     }
@@ -1708,12 +1694,23 @@
         throw "Tried to save an object containing an unsaved file.";
       }
       return {
-        __type: "File",
-        id:  value.id,
-        name: value.name(),
-        url: value.url()
+        "__type": "File",
+        "group":  value.group(),
+        "filename": value.name(),
+        "url": value.url()
       };
     }
+    if (value instanceof Bmob.File2) {
+      if (!value.url()) {
+        throw "Tried to save an object containing an unsaved file.";
+      }
+      return {
+        "__type": "File",
+        "cdn":  value.cdn(),
+        "filename": value.name(),
+        "url": value.url()
+      };
+    }	
     if (_.isObject(value)) {
       var output = {};
       Bmob._objectEach(value, function(v, k) {
@@ -1745,6 +1742,9 @@
     if (value instanceof Bmob.File) {
       return value;
     }
+    if (value instanceof Bmob.File2) {
+      return value;
+    }	
     if (value instanceof Bmob.Op) {
       return value;
     }
@@ -1797,8 +1797,16 @@
       // file._metaData = value.metaData || {};
       // file._url = value.url;
       // file.id = value.objectId;
+	  if( value.url != undefined && value.url != null ){ 
 
-      var file={"_name":value.filename,"_url":Bmob.fileURL+"/"+value.url,"_group":value.group};
+		  if( value.url.indexOf("http")>=0 ){
+			   var file={"_name":value.filename,"_url":value.url,"_group":value.group};
+		  }else{
+			   var file={"_name":value.filename,"_url":Bmob.fileURL+"/"+value.url,"_group":value.group};
+		  }
+	  } else { //用cdn上传的文件
+		  var file={"_name":value.filename,"_url":value.url,"_group":value.group};
+	  }
 
       return file;
     }
@@ -1829,7 +1837,7 @@
       Bmob._traverse(object.attributes, func, seen);
       return func(object);
     }
-    if (object instanceof Bmob.Relation || object instanceof Bmob.File) {
+    if (object instanceof Bmob.Relation || object instanceof Bmob.File || object instanceof Bmob.File2) {
       // Nothing needs to be done, but we don't want to recurse into the
       // object's parent infinitely, so we catch this case.
       return func(object);
@@ -3778,6 +3786,29 @@
 
   };  
 
+  var utf16to8 = function(str) {
+    var out, i, len, c;
+
+
+    out = "";
+    len = str.length;
+    for(i = 0; i < len; i++) {
+      c = str.charCodeAt(i);
+      if ((c >= 0x0001) && (c <= 0x007F)) {
+        out += str.charAt(i);
+      } else if (c > 0x07FF) {
+        out += String.fromCharCode(0xE0 | ((c >> 12) & 0x0F));
+        out += String.fromCharCode(0x80 | ((c >>  6) & 0x3F));
+        out += String.fromCharCode(0x80 | ((c >>  0) & 0x3F));
+      } else {
+        out += String.fromCharCode(0xC0 | ((c >>  6) & 0x1F));
+        out += String.fromCharCode(0x80 | ((c >>  0) & 0x3F));
+      }
+    }
+    return out;
+
+
+  };
 
   // A list of file extensions to mime types as found here:
   // http://stackoverflow.com/questions/58510/using-net-how-can-you-find-the-
@@ -4029,7 +4060,7 @@
    */
   Bmob.File = function(name, data, type) {
     // this._name = name;
-    this._name = encodeBase64(name);
+    this._name = encodeBase64(utf16to8(name));
     // this._name = "aGVsbG8udHh0";
     var currentUser = Bmob.User.current();
     this._metaData = {
@@ -4072,7 +4103,11 @@
      * @return {String}
      */
     url: function() {
-      return Bmob.fileURL+"/"+this._url;
+	  if( this._url.indexOf(Bmob.fileURL)>=0 ){
+		return this._url;
+	  }else{
+		return Bmob.fileURL+"/"+this._url;
+	  }
     },
 
     /**
@@ -4164,6 +4199,484 @@
   };
 
 }(this));
+
+
+
+/*jshint bitwise:false *//*global FileReader: true, File: true */
+(function(root) {
+  root.Bmob = root.Bmob || {};
+  var Bmob = root.Bmob;
+  var _ = Bmob._;
+
+  var b64Digit = function(number) {
+    if (number < 26) {
+      return String.fromCharCode(65 + number);
+    }
+    if (number < 52) {
+      return String.fromCharCode(97 + (number - 26));
+    }
+    if (number < 62) {
+      return String.fromCharCode(48 + (number - 52));
+    }
+    if (number === 62) {
+      return "+";
+    }
+    if (number === 63) {
+      return "/";
+    }
+    throw "Tried to encode large digit " + number + " in base64.";
+  };
+
+
+  var encodeBase64 = function(str) {
+    var base64EncodeChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    var out, i, len;
+    var c1, c2, c3;
+
+    len = str.length;
+    i = 0;
+    out = "";
+    while(i < len) {
+      c1 = str.charCodeAt(i++) & 0xff;
+      if(i == len)
+      {
+          out += base64EncodeChars.charAt(c1 >> 2);
+          out += base64EncodeChars.charAt((c1 & 0x3) << 4);
+          out += "==";
+          break;
+      }
+      c2 = str.charCodeAt(i++);
+      if(i == len)
+      {
+          out += base64EncodeChars.charAt(c1 >> 2);
+          out += base64EncodeChars.charAt(((c1 & 0x3)<< 4) | ((c2 & 0xF0) >> 4));
+          out += base64EncodeChars.charAt((c2 & 0xF) << 2);
+          out += "=";
+          break;
+      }
+      c3 = str.charCodeAt(i++);
+      out += base64EncodeChars.charAt(c1 >> 2);
+      out += base64EncodeChars.charAt(((c1 & 0x3)<< 4) | ((c2 & 0xF0) >> 4));
+      out += base64EncodeChars.charAt(((c2 & 0xF) << 2) | ((c3 & 0xC0) >>6));
+      out += base64EncodeChars.charAt(c3 & 0x3F);
+    }
+    return out;
+
+
+  };  
+
+  var utf16to8 = function(str) {
+    var out, i, len, c;
+
+
+    out = "";
+    len = str.length;
+    for(i = 0; i < len; i++) {
+      c = str.charCodeAt(i);
+      if ((c >= 0x0001) && (c <= 0x007F)) {
+        out += str.charAt(i);
+      } else if (c > 0x07FF) {
+        out += String.fromCharCode(0xE0 | ((c >> 12) & 0x0F));
+        out += String.fromCharCode(0x80 | ((c >>  6) & 0x3F));
+        out += String.fromCharCode(0x80 | ((c >>  0) & 0x3F));
+      } else {
+        out += String.fromCharCode(0xC0 | ((c >>  6) & 0x1F));
+        out += String.fromCharCode(0x80 | ((c >>  0) & 0x3F));
+      }
+    }
+    return out;
+
+
+  };
+
+  // A list of file extensions to mime types as found here:
+  // http://stackoverflow.com/questions/58510/using-net-how-can-you-find-the-
+  //     mime-type-of-a-file-based-on-the-file-signature
+  var mimeTypes = {
+    ai: "application/postscript",
+    aif: "audio/x-aiff",
+    aifc: "audio/x-aiff",
+    aiff: "audio/x-aiff",
+    asc: "text/plain",
+    atom: "application/atom+xml",
+    au: "audio/basic",
+    avi: "video/x-msvideo",
+    bcpio: "application/x-bcpio",
+    bin: "application/octet-stream",
+    bmp: "image/bmp",
+    cdf: "application/x-netcdf",
+    cgm: "image/cgm",
+    "class": "application/octet-stream",
+    cpio: "application/x-cpio",
+    cpt: "application/mac-compactpro",
+    csh: "application/x-csh",
+    css: "text/css",
+    dcr: "application/x-director",
+    dif: "video/x-dv",
+    dir: "application/x-director",
+    djv: "image/vnd.djvu",
+    djvu: "image/vnd.djvu",
+    dll: "application/octet-stream",
+    dmg: "application/octet-stream",
+    dms: "application/octet-stream",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml." +
+          "document",
+    dotx: "application/vnd.openxmlformats-officedocument.wordprocessingml." +
+          "template",
+    docm: "application/vnd.ms-word.document.macroEnabled.12",
+    dotm: "application/vnd.ms-word.template.macroEnabled.12",
+    dtd: "application/xml-dtd",
+    dv: "video/x-dv",
+    dvi: "application/x-dvi",
+    dxr: "application/x-director",
+    eps: "application/postscript",
+    etx: "text/x-setext",
+    exe: "application/octet-stream",
+    ez: "application/andrew-inset",
+    gif: "image/gif",
+    gram: "application/srgs",
+    grxml: "application/srgs+xml",
+    gtar: "application/x-gtar",
+    hdf: "application/x-hdf",
+    hqx: "application/mac-binhex40",
+    htm: "text/html",
+    html: "text/html",
+    ice: "x-conference/x-cooltalk",
+    ico: "image/x-icon",
+    ics: "text/calendar",
+    ief: "image/ief",
+    ifb: "text/calendar",
+    iges: "model/iges",
+    igs: "model/iges",
+    jnlp: "application/x-java-jnlp-file",
+    jp2: "image/jp2",
+    jpe: "image/jpeg",
+    jpeg: "image/jpeg",
+    jpg: "image/jpeg",
+    js: "application/x-javascript",
+    kar: "audio/midi",
+    latex: "application/x-latex",
+    lha: "application/octet-stream",
+    lzh: "application/octet-stream",
+    m3u: "audio/x-mpegurl",
+    m4a: "audio/mp4a-latm",
+    m4b: "audio/mp4a-latm",
+    m4p: "audio/mp4a-latm",
+    m4u: "video/vnd.mpegurl",
+    m4v: "video/x-m4v",
+    mac: "image/x-macpaint",
+    man: "application/x-troff-man",
+    mathml: "application/mathml+xml",
+    me: "application/x-troff-me",
+    mesh: "model/mesh",
+    mid: "audio/midi",
+    midi: "audio/midi",
+    mif: "application/vnd.mif",
+    mov: "video/quicktime",
+    movie: "video/x-sgi-movie",
+    mp2: "audio/mpeg",
+    mp3: "audio/mpeg",
+    mp4: "video/mp4",
+    mpe: "video/mpeg",
+    mpeg: "video/mpeg",
+    mpg: "video/mpeg",
+    mpga: "audio/mpeg",
+    ms: "application/x-troff-ms",
+    msh: "model/mesh",
+    mxu: "video/vnd.mpegurl",
+    nc: "application/x-netcdf",
+    oda: "application/oda",
+    ogg: "application/ogg",
+    pbm: "image/x-portable-bitmap",
+    pct: "image/pict",
+    pdb: "chemical/x-pdb",
+    pdf: "application/pdf",
+    pgm: "image/x-portable-graymap",
+    pgn: "application/x-chess-pgn",
+    pic: "image/pict",
+    pict: "image/pict",
+    png: "image/png",
+    pnm: "image/x-portable-anymap",
+    pnt: "image/x-macpaint",
+    pntg: "image/x-macpaint",
+    ppm: "image/x-portable-pixmap",
+    ppt: "application/vnd.ms-powerpoint",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml." +
+          "presentation",
+    potx: "application/vnd.openxmlformats-officedocument.presentationml." +
+          "template",
+    ppsx: "application/vnd.openxmlformats-officedocument.presentationml." +
+          "slideshow",
+    ppam: "application/vnd.ms-powerpoint.addin.macroEnabled.12",
+    pptm: "application/vnd.ms-powerpoint.presentation.macroEnabled.12",
+    potm: "application/vnd.ms-powerpoint.template.macroEnabled.12",
+    ppsm: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12",
+    ps: "application/postscript",
+    qt: "video/quicktime",
+    qti: "image/x-quicktime",
+    qtif: "image/x-quicktime",
+    ra: "audio/x-pn-realaudio",
+    ram: "audio/x-pn-realaudio",
+    ras: "image/x-cmu-raster",
+    rdf: "application/rdf+xml",
+    rgb: "image/x-rgb",
+    rm: "application/vnd.rn-realmedia",
+    roff: "application/x-troff",
+    rtf: "text/rtf",
+    rtx: "text/richtext",
+    sgm: "text/sgml",
+    sgml: "text/sgml",
+    sh: "application/x-sh",
+    shar: "application/x-shar",
+    silo: "model/mesh",
+    sit: "application/x-stuffit",
+    skd: "application/x-koan",
+    skm: "application/x-koan",
+    skp: "application/x-koan",
+    skt: "application/x-koan",
+    smi: "application/smil",
+    smil: "application/smil",
+    snd: "audio/basic",
+    so: "application/octet-stream",
+    spl: "application/x-futuresplash",
+    src: "application/x-wais-source",
+    sv4cpio: "application/x-sv4cpio",
+    sv4crc: "application/x-sv4crc",
+    svg: "image/svg+xml",
+    swf: "application/x-shockwave-flash",
+    t: "application/x-troff",
+    tar: "application/x-tar",
+    tcl: "application/x-tcl",
+    tex: "application/x-tex",
+    texi: "application/x-texinfo",
+    texinfo: "application/x-texinfo",
+    tif: "image/tiff",
+    tiff: "image/tiff",
+    tr: "application/x-troff",
+    tsv: "text/tab-separated-values",
+    txt: "text/plain",
+    ustar: "application/x-ustar",
+    vcd: "application/x-cdlink",
+    vrml: "model/vrml",
+    vxml: "application/voicexml+xml",
+    wav: "audio/x-wav",
+    wbmp: "image/vnd.wap.wbmp",
+    wbmxl: "application/vnd.wap.wbxml",
+    wml: "text/vnd.wap.wml",
+    wmlc: "application/vnd.wap.wmlc",
+    wmls: "text/vnd.wap.wmlscript",
+    wmlsc: "application/vnd.wap.wmlscriptc",
+    wrl: "model/vrml",
+    xbm: "image/x-xbitmap",
+    xht: "application/xhtml+xml",
+    xhtml: "application/xhtml+xml",
+    xls: "application/vnd.ms-excel",
+    xml: "application/xml",
+    xpm: "image/x-xpixmap",
+    xsl: "application/xml",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    xltx: "application/vnd.openxmlformats-officedocument.spreadsheetml." +
+          "template",
+    xlsm: "application/vnd.ms-excel.sheet.macroEnabled.12",
+    xltm: "application/vnd.ms-excel.template.macroEnabled.12",
+    xlam: "application/vnd.ms-excel.addin.macroEnabled.12",
+    xlsb: "application/vnd.ms-excel.sheet.binary.macroEnabled.12",
+    xslt: "application/xslt+xml",
+    xul: "application/vnd.mozilla.xul+xml",
+    xwd: "image/x-xwindowdump",
+    xyz: "chemical/x-xyz",
+    zip: "application/zip"
+  };
+
+  /**
+   * Reads a File using a FileReader.
+   * @param file {File} the File to read.
+   * @param type {String} (optional) the mimetype to override with.
+   * @return {Bmob.Promise} A Promise that will be fulfilled with a
+   *     base64-encoded string of the data and its mime type.
+   */
+  var readAsync = function(file, type) {
+    var promise = new Bmob.Promise();
+
+    if (typeof(FileReader) === "undefined") {
+      return Bmob.Promise.error(new Bmob.Error(
+          -1, "Attempted to use a FileReader on an unsupported browser."));
+    }
+
+    var reader = new FileReader();
+    reader.onloadend = function() {
+
+
+      promise.resolve(reader.result);
+    };
+    reader.readAsBinaryString(file);
+    return promise;
+  };
+
+  /**
+   *  Bmob.File 保存文件到bmob
+   * cloud.
+   * @param name {String} 文件名。在服务器中，这会改为唯一的文件名
+   * @param data {file} 文件的数据
+   *     
+   *     文件对象是在" file upload control"中被选中，只能在下面的浏览器使用
+   *        in Firefox 3.6+, Safari 6.0.2+, Chrome 7+, and IE 10+.
+   *        例如:<pre>
+   *     
+   * var fileUploadControl = $("#profilePhotoFileUpload")[0];
+   * if (fileUploadControl.files.length > 0) {
+   *   var file = fileUploadControl.files[0];
+   *   var name = "photo.jpg";
+   *   var bmobFile = new Bmob.File(name, file);
+   *   bmobFile.save().then(function() {
+   *     // The file has been saved to Bmob.
+   *   }, function(error) {
+   *     // The file either could not be read, or could not be saved to Bmob.
+   *   });
+   * }</pre>
+   * @param type {String} 文件的类型.
+   */
+  Bmob.File2 = function(name, data, type) {
+    // this._name = name;
+    this._name = encodeBase64(utf16to8(name));
+    // this._name = "aGVsbG8udHh0";
+    var currentUser = Bmob.User.current();
+    this._metaData = {
+       owner: (currentUser !=null ? currentUser.id : 'unknown')
+    };
+
+    // Guess the content type from the extension if we need to.
+    var extension = /\.([^.]*)$/.exec(name);
+    if (extension) {
+      extension = extension[1].toLowerCase();
+    }
+    var guessedType = type || mimeTypes[extension] || "text/plain";
+    this._guessedType = guessedType;
+
+    if (typeof(File) !== "undefined" && data instanceof File) {
+      this._source = readAsync(data, type);
+    } else {
+      // throw "Creating a Bmob.File from a String is not yet supported.";
+      this._source = Bmob.Promise.as(data, guessedType);
+      this._metaData.size = data.length;      
+    }
+  };
+
+
+
+  Bmob.File2.prototype = {
+
+    /**
+     * Gets the name of the file. Before save is called, this is the filename
+     * given by the user. After save is called, that name gets prefixed with a
+     * unique identifier.
+     */
+    name: function() {
+      return this._name;
+    },
+
+    /**
+     * Gets the url of the file. It is only available after you save the file or
+     * after you get the file from a Bmob.Object.
+     * @return {String}
+     */
+    url: function() {
+	  return this._url;
+    },
+
+    /**
+     * Gets the group of the file. It is only available after you save the file or
+     * after you get the file from a Bmob.Object.
+     * @return {String}
+     */
+    cdn: function() {
+      return this._cdn;
+    },
+
+    /**
+    * <p>Returns the file's metadata JSON object if no arguments is given.Returns the
+    * metadata value if a key is given.Set metadata value if key and value are both given.</p>
+    * <p><pre>
+    *  var metadata = file.metaData(); //Get metadata JSON object.
+    *  var size = file.metaData('size');  // Get the size metadata value.
+    *  file.metaData('format', 'jpeg'); //set metadata attribute and value.
+    *</pre></p>
+    * @return {Object} The file's metadata JSON object.
+    * @param {String} attr an optional metadata key.
+    * @param {Object} value an optional metadata value.
+    **/
+    metaData: function(attr, value) {
+      if(attr != null && value != null){
+         this._metaData[attr] = value;
+         return this;
+      }else if(attr != null){
+         return this._metaData[attr];
+      }else{
+        return this._metaData;
+      }
+    },
+
+
+     /**
+     * Destroy the file.
+     * @return {Bmob.Promise} A promise that is fulfilled when the destroy
+     *     completes.
+     */
+    destroy: function(options){
+      if(!this._url && !this._cdn )
+        return Bmob.Promise.error('The file url and cdn is not eixsts.')._thenRunCallbacks(options);
+      
+      var data = {
+              cdn: this._cdn,
+              _ContentType: "application/json",
+              url: this._url,
+              metaData: self._metaData,
+            };
+      var request = Bmob._request("2/files", null, null, 'DELETE',data);
+      return request._thenRunCallbacks(options);
+    },
+
+    /**
+     * Saves the file to the Bmob cloud.
+     * @param {Object} options A Backbone-style options object.
+     * @return {Bmob.Promise} Promise that is resolved when the save finishes.
+     */
+    save: function(options) {
+      var self = this;
+      if (!self._previousSave) {
+        if(self._source){
+          self._previousSave = self._source.then(function(base64, type) {
+            var data = {
+              base64: encodeBase64(base64),
+              _ContentType: "text/plain",
+              mime_type: "text/plain",
+              metaData: self._metaData,
+            };
+            if(!self._metaData.size){
+              self._metaData.size = base64.length;
+            }
+            return Bmob._request("2/files", self._name, null, 'POST', data);
+          }).then(function(response) {
+
+            self._name = response.filename;
+            self._url = response.url;
+            self._cdn = response.cdn;
+
+            return self;
+          });
+        } else  {
+          throw "not source file"
+        }
+      }
+      return self._previousSave._thenRunCallbacks(options);
+    }
+  };
+
+}(this));
+
+
 
 // Bmob.Object is analogous to the Java BmobObject.
 // It also implements the same interface as a Backbone model.
@@ -4598,7 +5111,8 @@
       var value = this.attributes[key];
       if (_.isObject(value) &&
           !(value instanceof Bmob.Object) &&
-          !(value instanceof Bmob.File)) {
+          !(value instanceof Bmob.File) &&
+          !(value instanceof Bmob.File2)) {
         value = value.toJSON ? value.toJSON() : value;
         var json = JSON.stringify(value);
         if (this._hashedJSON[key] !== json) {
@@ -5481,6 +5995,12 @@
       }
 
       if (object instanceof Bmob.File) {
+        if (!object.url()) {
+          files.push(object);
+        }
+        return;
+      }
+      if (object instanceof Bmob.File2) {
         if (!object.url()) {
           files.push(object);
         }
@@ -7454,7 +7974,17 @@
      * @return {Bmob.Query} 返回查询对象，因此可以使用链式调用。
      */
     ascending: function(key) {
-      this._order = key;
+      
+    if( Bmob._isNullOrUndefined(this._order) ){
+        this._order = key;
+      } else {
+        this._order = this._order + ","+ key;
+      }
+      return this;
+    },
+
+    cleanOrder: function(key) {
+      this._order = null;
       return this;
     },
 
@@ -7465,7 +7995,12 @@
      * @return {Bmob.Query} 返回查询对象，因此可以使用链式调用。
      */
     descending: function(key) {
-      this._order = "-" + key;
+    if( Bmob._isNullOrUndefined(this._order) ){
+        this._order = "-" + key;
+      } else {
+        this._order = this._order + ",-"+ key;
+      }      
+      
       return this;
     },
 
@@ -8044,7 +8579,7 @@
      * 调用生成缩略图的函数。
      * @param {Object} 相应的参数
      * @param {Object} Backbone-style options 对象。 options.success, 如果设置了，将会处理云端代码调用成功的情况。 options.error 如果设置了，将会处理云端代码调用失败的情况。 两个函数都是可选的。两个函数都只有一个参数。
-     * @return {Bmob.Promise} A promise 将会处理云端代码调用的情况。
+     * @return {Bmob.Promise} 
      */
     thumbnail: function(data, options) {
       var request = Bmob._request("images/thumbnail", null, null, 'POST',
@@ -8060,7 +8595,7 @@
      * 调用生成水印的函数。
      * @param {Object} 相应的参数
      * @param {Object} Backbone-style options 对象。 options.success, 如果设置了，将会处理云端代码调用成功的情况。 options.error 如果设置了，将会处理云端代码调用失败的情况。 两个函数都是可选的。两个函数都只有一个参数。
-     * @return {Bmob.Promise} A promise 将会处理云端代码调用的情况。
+     * @return {Bmob.Promise} 
      */
     watermark: function(data, options) {
       var request = Bmob._request("images/watermark", null, null, 'POST',
@@ -8077,6 +8612,133 @@
 
 }(this));
 
+(function(root) {
+  root.Bmob = root.Bmob || {};
+  var Bmob = root.Bmob;
+  var _ = Bmob._;
+
+  /**
+   * @namespace 处理短信的函数
+   */
+  Bmob.Sms = Bmob.Sms || {};
+
+  _.extend(Bmob.Sms, /** @lends Bmob.Sms */  {
+
+    /**
+     * 请求发送短信内容
+     * @param {Object} 相应的参数
+     * @param {Object} Backbone-style options 对象。 options.success, 如果设置了，将会处理云端代码调用成功的情况。 options.error 如果设置了，将会处理云端代码调用失败的情况。 两个函数都是可选的。两个函数都只有一个参数。
+     * @return {Bmob.Promise} 
+     */
+    requestSms: function(data, options) {
+      var request = Bmob._request("requestSms", null, null, 'POST',
+                                   Bmob._encode(data, null, true));
+      return request.then(function(resp) {
+        return Bmob._decode(null, resp);
+      })._thenRunCallbacks(options);
+
+    },
+
+    /**
+     * 请求短信验证码
+     * @param {Object} 相应的参数
+     * @param {Object} Backbone-style options 对象。 options.success, 如果设置了，将会处理云端代码调用成功的情况。 options.error 如果设置了，将会处理云端代码调用失败的情况。 两个函数都是可选的。两个函数都只有一个参数。
+     * @return {Bmob.Promise}
+     */
+    requestSmsCode: function(data, options) {
+      var request = Bmob._request("requestSmsCode", null, null, 'POST',
+                                   Bmob._encode(data, null, true));
+      return request.then(function(resp) {
+        return Bmob._decode(null, resp);
+      })._thenRunCallbacks(options);
+
+    },
+
+    /**
+     * 验证短信验证码
+     * @param {Object} 相应的参数
+     * @param {Object} Backbone-style options 对象。 options.success, 如果设置了，将会处理云端代码调用成功的情况。 options.error 如果设置了，将会处理云端代码调用失败的情况。 两个函数都是可选的。两个函数都只有一个参数。
+     * @return {Bmob.Promise}
+     */
+    verifySmsCode: function(mob, verifyCode, options) {
+      data = {"mobilePhoneNumber": mob };
+      var request = Bmob._request("verifySmsCode/"+verifyCode, null, null, 'POST',
+                                   Bmob._encode(data, null, true));
+      return request.then(function(resp) {
+        return Bmob._decode(null, resp);
+      })._thenRunCallbacks(options);
+    },
+
+    /**
+     * 查询短信状态
+     * @param {Object} 相应的参数
+     * @param {Object} Backbone-style options 对象。 options.success, 如果设置了，将会处理云端代码调用成功的情况。 options.error 如果设置了，将会处理云端代码调用失败的情况。 两个函数都是可选的。两个函数都只有一个参数。
+     * @return {Bmob.Promise}
+     */
+    querySms: function(smsId, options) {
+      var request = Bmob._request("querySms/"+smsId, null, null, 'GET',
+                                   null);
+      return request.then(function(resp) {
+        return Bmob._decode(null, resp);
+      })._thenRunCallbacks(options);
+    }
+
+  });
+
+
+
+}(this));
+
+(function(root) {
+  root.Bmob = root.Bmob || {};
+  var Bmob = root.Bmob;
+  var _ = Bmob._;
+
+  /**
+   * @namespace 支付功能
+   * <a href="http://docs.bmob.cn/restful/developdoc/index.html?menukey=develop_doc&key=develop_restful#index_支付服务">cloud functions</a>.
+   */
+  Bmob.Pay = Bmob.Pay || {};
+
+  _.extend(Bmob.Pay, /** @lends Bmob.Cloud */ {
+
+    /**
+     * 网页端调起支付宝支付接口
+     * @param {float} 价格
+     * @param {String} 商品名称    
+     * @param {String} 描述        
+     * @param {Object} options  Backbone-style options 对象。
+     * options.success, 如果设置了，将会处理云端代码调用成功的情况。  options.error 如果设置了，将会处理云端代码调用失败的情况。  两个函数都是可选的。两个函数都只有一个参数。
+     * @return {Bmob.Promise} A promise 将会处理云端代码调用的情况。
+     */
+    webPay: function(price, product_name, body, options) {
+      var data={"order_price": price, "product_name": product_name, "body": body}
+      var request = Bmob._request("webpay", null, null, 'POST',
+                                   Bmob._encode(data, null, true));
+
+      return request.then(function(resp) {
+        return Bmob._decode(null, resp);
+      })._thenRunCallbacks(options);
+    },
+
+    /**
+     * 查询订单
+     * @param {String} 订单id        
+     * @param {Object} options  Backbone-style options 对象。
+     * options.success, 如果设置了，将会处理云端代码调用成功的情况。  options.error 如果设置了，将会处理云端代码调用失败的情况。  两个函数都是可选的。两个函数都只有一个参数。
+     * @return {Bmob.Promise} A promise 将会处理云端代码调用的情况。
+     */
+    queryOrder: function(orderId, options) {
+      
+      var request = Bmob._request("pay/"+orderId, null, null, 'GET',
+                                   null);
+      return request.then(function(resp) {
+        return Bmob._decode(null, resp);
+      })._thenRunCallbacks(options);
+    }
+
+  });
+}(this));
 
 
 (function(root) {
@@ -8150,3 +8812,4 @@
     return request._thenRunCallbacks(options);
   };
 }(this));
+
