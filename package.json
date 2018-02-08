@@ -1,12 +1,23 @@
 {
   "name": "bmob",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "bmob cloud sdk",
   "main": "./lib/bmobcloud",
   "directories": {
     "test": "test"
   },
-
+  "dependencies": {
+      "async": "2.0.0-rc.4",
+      "bufferhelper": "0.2.1",
+      "crypto": "0.0.3",
+      "encoding": "0.1.12",
+      "htmlparser": "1.7.7",
+      "http": "0.0.0",
+      "iconv-lite": "0.4.13",
+      "nodemailer": "2.4.1",
+      "eventproxy": "0.3.4",
+      "xml2js": "0.4.16"      
+  },
   "keywords": [
     "bmob"
   ],
